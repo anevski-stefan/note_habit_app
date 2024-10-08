@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:todo_habit_app/database_helper.dart';
+import 'package:todo_habit_app/habit_detail_screen.dart';
 import 'package:intl/intl.dart';
-import 'database_helper.dart';
 
 class HabitList extends StatefulWidget {
   @override
@@ -9,146 +10,165 @@ class HabitList extends StatefulWidget {
 
 class _HabitListState extends State<HabitList> {
   List<Map<String, dynamic>> _habits = [];
-  final TextEditingController _controller = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _refreshHabits();
+    _loadHabits();
   }
 
-  void _refreshHabits() async {
-    final habits = await DatabaseHelper.instance.getHabits();
+  void _loadHabits() async {
+    await DatabaseHelper.instance.markUncheckedDaysAsNotDone();
+    List<Map<String, dynamic>> habits =
+        await DatabaseHelper.instance.getHabits();
     setState(() {
       _habits = habits;
     });
   }
 
-  void _addHabit() {
-    String frequency = 'Everyday';
-    String habitName = '';
-    List<bool> selectedDays = List.filled(7, true);
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Habits'),
+      ),
+      body: ListView.builder(
+        itemCount: _habits.length,
+        itemBuilder: (context, index) {
+          return _buildHabitTile(_habits[index]);
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showAddHabitDialog,
+        child: Icon(Icons.add),
+      ),
+    );
+  }
+
+  Widget _buildHabitTile(Map<String, dynamic> habit) {
+    return FutureBuilder<int>(
+      future: DatabaseHelper.instance.getHabitCompletionCount(
+        habit['id'],
+        DateTime.parse(habit['startDate']),
+        habit['endDate'] != null ? DateTime.parse(habit['endDate']) : null,
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return ListTile(
+            title: Text(habit['title']),
+            subtitle: Text('Loading...'),
+          );
+        }
+
+        int completionCount = snapshot.data ?? 0;
+
+        return ListTile(
+          title: Text(habit['title']),
+          subtitle: Text('Started on: ${_formatDate(habit['startDate'])}'),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$completionCount days',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
+              Text(
+                habit['endDate'] != null
+                    ? 'Ends: ${_formatDate(habit['endDate'])}'
+                    : 'Ongoing',
+                style: TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => HabitDetailScreen(habit: habit),
+              ),
+            ).then((_) => _loadHabits());
+          },
+        );
+      },
+    );
+  }
+
+  String _formatDate(String dateString) {
+    final date = DateTime.parse(dateString);
+    return DateFormat('MMM d, y').format(date);
+  }
+
+  void _showAddHabitDialog() {
+    String title = '';
+    String frequency = 'Daily';
+    List<String> selectedDays = [];
     DateTime startDate = DateTime.now();
+    DateTime? endDate;
+    bool isIndefinite = true;
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (BuildContext context, StateSetter setState) {
             return AlertDialog(
-              title: Text('Add Your First Habit',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              content: Container(
-                width: double.maxFinite,
-                child: ListView(
-                  shrinkWrap: true,
+              title: Text('Add New Habit'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Create a habit that you can easily complete daily',
-                        style:
-                            TextStyle(color: Colors.grey[600], fontSize: 14)),
-                    SizedBox(height: 20),
                     TextField(
-                      onChanged: (value) => habitName = value,
-                      decoration: InputDecoration(
-                        hintText: "Avoid all alcohol on weekends",
-                        filled: true,
-                        fillColor: Colors.grey[200],
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
+                      decoration: InputDecoration(labelText: 'Habit Title'),
+                      onChanged: (value) {
+                        title = value;
+                      },
                     ),
-                    SizedBox(height: 20),
-                    Text('Frequency',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    SizedBox(height: 10),
-                    Container(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          isExpanded: true,
-                          value: frequency,
-                          items: ['Everyday', 'Weekdays', 'Weekends', 'Custom']
-                              .map((String value) {
-                            return DropdownMenuItem<String>(
-                              value: value,
-                              child: Text(value),
-                            );
-                          }).toList(),
-                          onChanged: (String? newValue) {
-                            setState(() {
-                              frequency = newValue!;
-                              if (frequency == 'Weekdays') {
-                                selectedDays = [
-                                  true,
-                                  true,
-                                  true,
-                                  true,
-                                  true,
-                                  false,
-                                  false
-                                ];
-                              } else if (frequency == 'Weekends') {
-                                selectedDays = [
-                                  false,
-                                  false,
-                                  false,
-                                  false,
-                                  false,
-                                  true,
-                                  true
-                                ];
-                              } else if (frequency == 'Everyday') {
-                                selectedDays = List.filled(7, true);
-                              }
-                            });
-                          },
-                        ),
-                      ),
+                    DropdownButtonFormField<String>(
+                      value: frequency,
+                      items: ['Daily', 'Weekly'].map((String value) {
+                        return DropdownMenuItem<String>(
+                          value: value,
+                          child: Text(value),
+                        );
+                      }).toList(),
+                      onChanged: (String? newValue) {
+                        setState(() {
+                          frequency = newValue!;
+                          selectedDays = [];
+                        });
+                      },
                     ),
-                    if (frequency == 'Custom')
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SizedBox(height: 20),
-                          Text('Select Days',
-                              style: TextStyle(fontWeight: FontWeight.bold)),
-                          SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              for (int i = 0; i < 7; i++)
-                                FilterChip(
-                                  label: Text(DateFormat('E')
-                                      .format(DateTime(2023, 1, 2 + i))),
-                                  selected: selectedDays[i],
-                                  onSelected: (bool selected) {
-                                    setState(() {
-                                      selectedDays[i] = selected;
-                                    });
-                                  },
-                                ),
-                            ],
-                          ),
-                        ],
+                    if (frequency == 'Weekly')
+                      Wrap(
+                        spacing: 5.0,
+                        children:
+                            ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                                .map((day) => FilterChip(
+                                      label: Text(day),
+                                      selected: selectedDays.contains(day),
+                                      onSelected: (bool selected) {
+                                        setState(() {
+                                          if (selected) {
+                                            selectedDays.add(day);
+                                          } else {
+                                            selectedDays.remove(day);
+                                          }
+                                        });
+                                      },
+                                    ))
+                                .toList(),
                       ),
-                    SizedBox(height: 20),
-                    Text('Start Date',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    SizedBox(height: 10),
                     InkWell(
                       onTap: () async {
                         final DateTime? picked = await showDatePicker(
                           context: context,
-                          initialDate: startDate ?? DateTime.now(),
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(Duration(days: 365)),
+                          initialDate: startDate,
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2101),
                         );
                         if (picked != null && picked != startDate) {
                           setState(() {
@@ -156,50 +176,71 @@ class _HabitListState extends State<HabitList> {
                           });
                         }
                       },
-                      child: Container(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[200],
-                          borderRadius: BorderRadius.circular(8),
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          labelText: 'Start Date',
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(startDate == null
-                                ? 'Select start date'
-                                : DateFormat('MMM d, y').format(startDate!)),
-                            Icon(Icons.calendar_today),
-                          ],
-                        ),
+                        child: Text(DateFormat('MMM d, y').format(startDate)),
                       ),
                     ),
+                    SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: !isIndefinite,
+                          onChanged: (value) {
+                            setState(() {
+                              isIndefinite = !value!;
+                              if (isIndefinite) endDate = null;
+                            });
+                          },
+                        ),
+                        Text('Set end date'),
+                      ],
+                    ),
+                    if (!isIndefinite)
+                      InkWell(
+                        onTap: () async {
+                          final DateTime? picked = await showDatePicker(
+                            context: context,
+                            initialDate:
+                                endDate ?? startDate.add(Duration(days: 30)),
+                            firstDate: startDate,
+                            lastDate: startDate.add(Duration(days: 365)),
+                          );
+                          if (picked != null) {
+                            setState(() {
+                              endDate = picked;
+                            });
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: 'End Date',
+                          ),
+                          child: Text(endDate != null
+                              ? DateFormat('MMM d, y').format(endDate!)
+                              : 'Select End Date'),
+                        ),
+                      ),
                   ],
                 ),
               ),
-              actions: <Widget>[
+              actions: [
                 TextButton(
-                  child: Text('Cancel', style: TextStyle(color: Colors.grey)),
-                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Cancel'),
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
                 ),
-                ElevatedButton(
-                  child: Text('Next'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  onPressed: () async {
-                    if (habitName.isNotEmpty) {
-                      await DatabaseHelper.instance.insertHabit({
-                        'title': habitName,
-                        'frequency': frequency,
-                        'selectedDays': selectedDays.join(','),
-                        'startDate': startDate.toIso8601String(),
-                      });
+                TextButton(
+                  child: Text('Add'),
+                  onPressed: () {
+                    if (title.isNotEmpty &&
+                        (frequency != 'Weekly' || selectedDays.isNotEmpty)) {
+                      _addHabit(
+                          title, frequency, selectedDays, startDate, endDate);
                       Navigator.of(context).pop();
-                      _refreshHabits();
                     }
                   },
                 ),
@@ -211,47 +252,17 @@ class _HabitListState extends State<HabitList> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Habit List'),
-        elevation: 0,
-      ),
-      body: _habits.isEmpty
-          ? Center(
-              child: Text('No habits yet. Tap + to add a new habit.',
-                  style: TextStyle(color: Colors.grey)),
-            )
-          : ListView.builder(
-              itemCount: _habits.length,
-              itemBuilder: (context, index) {
-                final habit = _habits[index];
-                return Card(
-                  margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: ListTile(
-                    title: Text(habit['title'],
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Frequency: ${habit['frequency']}'),
-                        if (habit['startDate'] != null)
-                          Text(
-                              'Start Date: ${DateFormat('MMM d, y').format(DateTime.parse(habit['startDate']))}'),
-                      ],
-                    ),
-                    trailing: Icon(Icons.chevron_right),
-                  ),
-                );
-              },
-            ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _addHabit,
-        tooltip: 'Add Habit',
-        child: Icon(Icons.add),
-        backgroundColor: Colors.blue,
-      ),
-    );
+  void _addHabit(String title, String frequency, List<String> selectedDays,
+      DateTime startDate, DateTime? endDate) async {
+    Map<String, dynamic> row = {
+      'title': title,
+      'frequency': frequency,
+      'selectedDays': selectedDays.join(','),
+      'startDate': startDate.toIso8601String(),
+      'endDate': endDate?.toIso8601String(),
+    };
+
+    await DatabaseHelper.instance.insertHabit(row);
+    _loadHabits();
   }
 }

@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:todo_habit_app/database_helper.dart';
 import 'splash_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize the database
+  await DatabaseHelper.instance.database;
+
+  // Mark unchecked days as not done
+  await DatabaseHelper.instance.markUncheckedDaysAsNotDone();
+
   runApp(MyApp());
 }
 
